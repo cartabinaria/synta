@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"io/ioutil"
 
-	"github.com/csunibo/synta"
-	"github.com/csunibo/synta/format"
+	"github.com/cartabinaria/synta"
+	"github.com/cartabinaria/synta/format"
 	"github.com/google/subcommands"
 )
 

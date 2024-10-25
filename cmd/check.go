@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/csunibo/synta"
+	"github.com/cartabinaria/synta"
 	"github.com/google/subcommands"
 )
 

@@ -3,7 +3,7 @@ package json
 import (
 	"encoding/json"
 
-	"github.com/csunibo/synta"
+	"github.com/cartabinaria/synta"
 )
 
 func Convert(syn synta.Synta) (s Synta) {

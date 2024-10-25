@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"regexp"
 
-	"github.com/csunibo/synta"
+	"github.com/cartabinaria/synta"
 )
 
 func Convert(synta synta.Synta) (expr *regexp.Regexp, err error) {

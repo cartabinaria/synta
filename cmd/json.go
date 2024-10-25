@@ -5,7 +5,7 @@ import (
 	"flag"
 	"fmt"
 
-	"github.com/csunibo/synta/json"
+	"github.com/cartabinaria/synta/json"
 	"github.com/google/subcommands"
 )
 

@@ -5,7 +5,7 @@ import (
 	"flag"
 	"fmt"
 
-	"github.com/csunibo/synta/regexp"
+	"github.com/cartabinaria/synta/regexp"
 	"github.com/google/subcommands"
 )
 
@@ -28,13 +28,13 @@ func (p *regexpCommand) Execute(_ context.Context, f *flag.FlagSet, _ ...interfa
 	if status != subcommands.ExitSuccess {
 		return status
 	}
-    r, err := regexp.Convert(*syntaFilePtr)
-    if err != nil {
-        fmt.Printf("Could not convert to regexp: %v\n", err)
-        return subcommands.ExitFailure
-    }
-		
-    fmt.Printf("%s\n", r.String())
+	r, err := regexp.Convert(*syntaFilePtr)
+	if err != nil {
+		fmt.Printf("Could not convert to regexp: %v\n", err)
+		return subcommands.ExitFailure
+	}
+
+	fmt.Printf("%s\n", r.String())
 
 	return subcommands.ExitSuccess
 }

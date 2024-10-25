@@ -1,4 +1,4 @@
-module github.com/csunibo/synta
+module github.com/cartabinaria/synta
 
 go 1.22
 

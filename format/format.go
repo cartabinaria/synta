@@ -3,7 +3,7 @@ package format
 import (
 	"sort"
 
-	"github.com/csunibo/synta"
+	"github.com/cartabinaria/synta"
 )
 
 // Format formats a synta structure into a string which represnts the contents

@@ -6,7 +6,7 @@ import (
 	"flag"
 	"fmt"
 
-	"github.com/csunibo/synta"
+	"github.com/cartabinaria/synta"
 	"github.com/google/subcommands"
 	"github.com/invopop/jsonschema"
 )
