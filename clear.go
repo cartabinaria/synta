@@ -11,9 +11,10 @@ func Clear(synta Synta) (s Synta) {
 
 func clearSegments(synta Synta, s Synta, segments []Segment) {
 	for _, segment := range segments {
-		if segment.Kind == SegmentTypeIdentifier {
+		switch segment.Kind {
+		case SegmentTypeIdentifier:
 			s.Definitions[*segment.Value] = synta.Definitions[*segment.Value]
-		} else if segment.Kind == SegmentTypeOptional {
+		case SegmentTypeOptional:
 			clearSegments(synta, s, segment.Subsegments)
 		}
 	}

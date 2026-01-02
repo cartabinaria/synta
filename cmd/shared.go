@@ -3,7 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
-	"io/ioutil"
+	"os"
 
 	"github.com/cartabinaria/synta"
 	"github.com/google/subcommands"
@@ -16,7 +16,7 @@ func parseFile(p subcommands.Command, f *flag.FlagSet) (*synta.Synta, subcommand
 		return nil, subcommands.ExitUsageError
 	}
 
-	contents, err := ioutil.ReadFile(filename)
+	contents, err := os.ReadFile(filename)
 	if err != nil {
 		fmt.Printf("Error while reading file: %s\n%v\n", filename, err)
 		return nil, subcommands.ExitFailure

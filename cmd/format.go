@@ -4,7 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"io/ioutil"
+	"os"
 
 	"github.com/cartabinaria/synta"
 	"github.com/cartabinaria/synta/format"
@@ -42,7 +42,11 @@ func (p *formatCommand) Execute(_ context.Context, f *flag.FlagSet, _ ...interfa
 
 	formatted := format.Format(syntaFile)
 	if p.write {
-		ioutil.WriteFile(f.Arg(0), []byte(formatted), 0664)
+		err := os.WriteFile(f.Arg(0), []byte(formatted), 0664)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error writing file: %v\n", err)
+			return subcommands.ExitFailure
+		}
 	} else {
 		fmt.Printf("%s", formatted)
 	}

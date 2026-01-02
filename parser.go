@@ -3,70 +3,31 @@ package synta
 import (
 	"errors"
 	"fmt"
+	"io"
 	"regexp"
 	"strings"
 )
 
 // ParseSynta attempts to parse a file's contents into a Synta internal
-// representation. If an error is encountered the parsing is aborted and the
-// error returned
-func ParseSynta(contents string) (s Synta, err error) {
-	lines := strings.Split(contents, "\n")
-	// remove blank lines
-	for i := 0; i < len(lines); i++ {
-		lines[i] = strings.TrimSpace(lines[i])
-		if lines[i] == "" {
-			lines = append(lines[:i], lines[i+1:]...)
-		}
+// representation. If an error is encountered, the parsing is aborted and the
+// error returned.
+func ParseSynta(contents string) (Synta, error) {
+	return ParseSyntaFromReader(strings.NewReader(contents))
+}
+
+// ParseSyntaFromReader parses Synta from an io.Reader, reading lines on demand.
+func ParseSyntaFromReader(r io.Reader) (Synta, error) {
+	lexer := NewLexer(r)
+	p := &parser{
+		lexer: lexer,
 	}
 
-	var (
-		consumed        = 0
-		id              = Identifier("")
-		def             = Definition{}
-		definitionLines = []string{}
-		filenameLine    = ""
-	)
-	if len(lines) > 1 {
-		definitionLines = lines[:len(lines)-1]
-		filenameLine = lines[len(lines)-1]
-	} else if len(lines) == 1 {
-		err = errors.New("Missing either the filename or defintions")
-	} else {
-		err = errors.New("Empty file provided")
-		return
+	// Read first token
+	if err := p.advance(); err != nil {
+		return Synta{}, err
 	}
 
-	s.Definitions = map[Identifier]Definition{}
-	for len(definitionLines) > 0 {
-		consumed, id, def, err = parseFirstDefinition(definitionLines)
-		definitionLines = definitionLines[consumed:]
-		if err != nil {
-			return
-		}
-
-		if _, ok := s.Definitions[id]; ok {
-			err = fmt.Errorf("defintion for `%s` is provided twice", id)
-			return
-		}
-		s.Definitions[id] = def
-
-	}
-
-	s.Filename.Segments, s.Filename.Extension, err = parseFilename(filenameLine)
-	if err != nil {
-		return
-	}
-	requiredIdentifiers := getRequiredIdentifiers(s.Filename.Segments)
-	requiredIdentifiers = append(requiredIdentifiers, s.Filename.Extension)
-	for _, id := range requiredIdentifiers {
-		if _, ok := s.Definitions[id]; !ok {
-			err = fmt.Errorf("missing definition for `%s`", id)
-			return
-		}
-	}
-
-	return
+	return p.parseFile()
 }
 
 func getRequiredIdentifiers(segments []Segment) (requiredIdentifiers []Identifier) {
@@ -80,6 +41,8 @@ func getRequiredIdentifiers(segments []Segment) (requiredIdentifiers []Identifie
 	return
 }
 
+// MustSynta parses the contents and panics if an error occurs.
+// This is useful for testing or when the input is known to be valid.
 func MustSynta(contents string) Synta {
 	s, err := ParseSynta(contents)
 	if err != nil {
@@ -89,222 +52,279 @@ func MustSynta(contents string) Synta {
 	return s
 }
 
-// ParseNextDefinition loops from the start line, until a definition is found.
-// All the lines from start to the defintion must be comments. If the defintion
-// identifier is not valid, we return an error, otherwise, the definition index,
-// the definition identifier and the definition itself are returned.
-func parseFirstDefinition(lines []string) (consumed int, id Identifier, def Definition, err error) {
-	for _, line := range lines {
-		consumed++
-		if line[0] == ';' {
-			def.Comments = append(def.Comments, strings.TrimSpace(line[1:]))
-		} else {
-			parsed_line := strings.Split(line, " = ")
-			raw_id, expr := parsed_line[0], parsed_line[1]
-			if !IdentifierRegexp.Match([]byte(raw_id)) {
-				err = fmt.Errorf("Invalid identifier: %s", raw_id)
-				return
-			}
-			id = Identifier(raw_id)
-			def.Regexp, err = regexp.Compile(expr)
-			return
-		}
-	}
-	err = errors.New("No next definition")
-	return
+// parser represents the unified parser for the entire file
+type parser struct {
+	lexer        *Lexer
+	currentToken Token
 }
 
-type State uint8
-
-const (
-	State0 State = iota
-	State1
-	State2
-	State3
-	State4
-	State5
-	State6
-	State7
-	State8
-)
-
-func isLetter(c byte) bool {
-	return c >= 'a' && c <= 'z'
-}
-
-func concat(seg *Segment, c byte) {
-	val := Identifier(string(*seg.Value) + string(c))
-	seg.Value = &val
-}
-
-func clear(seg *Segment) {
-	emptyValue := Identifier("")
-	seg.Value = &emptyValue
-	seg.Kind = SegmentTypeIdentifier
-}
-
-func push(segments []Segment, seg *Segment, depth int) (updatedSegments []Segment) {
-	backup := segments
-	for i := 0; i < depth-1; i++ {
-		segments = segments[len(segments)-1].Subsegments
-	}
-	if depth > 0 {
-		segments[len(segments)-1].Subsegments = append(segments[len(segments)-1].Subsegments, *seg)
-	} else {
-		backup = append(backup, *seg)
-	}
-	updatedSegments = backup
-	clear(seg)
-	return
-}
-
-func generateOptional(segments []Segment, depth int) (updatedSegments []Segment) {
-	backup := segments
-	newOptional := Segment{SegmentTypeOptional, nil, []Segment{}}
-
-	for i := 0; i < depth-1; i++ {
-		segments = segments[len(segments)-1].Subsegments
-	}
-	if depth > 0 {
-		segments[len(segments)-1].Subsegments = append(segments[len(segments)-1].Subsegments, newOptional)
-	} else {
-		backup = append(backup, newOptional)
-	}
-	updatedSegments = backup
-	return
-}
-
-// parseFilename checks if the line starts with "> ", or errors otherwise.
-// Then, it parses a list of segments from the line using a DFA. If an invalid
-// char is found, an error is returned, otherwise the result is the list of
-// prased defintions.
-func parseFilename(line string) (def []Segment, ext Identifier, err error) {
-	if len(line) < 2 || line[:2] != "> " {
-		err = errors.New("Not a Filename")
-		return
-	}
-	line = line[2:]
-	state := State0
-	depth := 0
-	seg := Segment{}
-	clear(&seg)
-
-	col := 0
-	for col = 0; err == nil && col < len(line); col++ {
-		c := line[col]
-		switch state {
-		case State0:
-			if isLetter(c) {
-				concat(&seg, c)
-				state = State1
-			} else if c == '(' {
-				def = generateOptional(def, depth)
-				depth++
-				state = State2
-			} else {
-				err = errors.New("Expected either a char or a (")
-			}
-		case State1:
-			if isLetter(c) {
-				concat(&seg, c)
-			} else if c == '-' {
-				def = push(def, &seg, depth)
-				state = State0
-			} else if c == '(' {
-				def = push(def, &seg, depth)
-				def = generateOptional(def, depth)
-				depth++
-				state = State2
-			} else if c == '.' {
-				if depth == 0 {
-					def = push(def, &seg, depth)
-					state = State7
-				} else {
-					err = errors.New("depth is not 0, you must close the optional segment")
-				}
-			} else {
-				err = errors.New("expected either a char, or a -, or a ( or a .")
-			}
-		case State2:
-			if c == '-' {
-				state = State3
-			} else {
-				err = errors.New("Expected a -")
-			}
-		case State3:
-			if isLetter(c) {
-				concat(&seg, c)
-				state = State4
-			} else {
-				err = errors.New("Expected a char")
-			}
-		case State4:
-			if isLetter(c) {
-				concat(&seg, c)
-			} else if c == ')' {
-				def = push(def, &seg, depth)
-				depth--
-				state = State5
-			} else if c == '(' {
-				def = push(def, &seg, depth)
-				def = generateOptional(def, depth)
-				depth++
-				state = State2
-			} else {
-				err = errors.New("Expected a char, or a ( or a )")
-			}
-		case State5:
-			if c == '?' {
-				state = State6
-			} else {
-				err = errors.New("Expected a ?")
-			}
-		case State6:
-			switch c {
-			case '-':
-				state = State0
-			case '.':
-				if depth == 0 {
-					state = State7
-				} else {
-					err = errors.New("Depth is not 0, you must close the optional segment")
-				}
-			case '(':
-				def = generateOptional(def, depth)
-				depth++
-				state = State2
-			case ')':
-				depth--
-				state = State5
-			default:
-				err = errors.New("Expected either a - or a . or a ( or a )")
-			}
-		case State7:
-			if isLetter(c) {
-				concat(&seg, c)
-				state = State8
-			} else {
-				err = errors.New("Expected a char")
-			}
-		case State8:
-			if isLetter(c) {
-				concat(&seg, c)
-			} else {
-				err = errors.New("Expected a char")
-			}
-		}
-	}
-
-	// ensure that we stop on an accepting state
-	if err == nil && state != State8 {
-		err = fmt.Errorf("Stopped at a non-accepting state (was %d, expected 8)", state)
-	}
-	// handle the filename extension
-	ext = *seg.Value
-
-	// add debug information to the error string
+// advance moves to the next token
+func (p *parser) advance() error {
+	token, err := p.lexer.NextToken()
 	if err != nil {
-		err = fmt.Errorf("Invalid char at column %d:\n%s\n%s\n%v", col, line, strings.Repeat(" ", col-1)+"^", err)
+		return err
 	}
-	return
+	p.currentToken = token
+	return nil
+}
+
+// parseFile parses the entire file from start to end
+func (p *parser) parseFile() (Synta, error) {
+	var s Synta
+	s.Definitions = map[Identifier]Definition{}
+
+	if p.currentToken.Type == TokenEOF {
+		return Synta{}, errors.New("empty file provided")
+	}
+
+	// Parse tokens into AST nodes
+	for p.currentToken.Type != TokenEOF {
+		var node Node
+		var err error
+
+		switch p.currentToken.Type {
+		case TokenComment:
+			// Comment tokens are collected as part of definitions
+			node, err = p.parseDefinitionNode()
+		case TokenIdentifier:
+			// Definition starts with identifier
+			node, err = p.parseDefinitionNode()
+		case TokenFilenamePrefix:
+			// Filename declaration
+			node, err = p.parseFilenameNode()
+		default:
+			return Synta{}, fmt.Errorf("unexpected token at line %d: %s", p.currentToken.Line, p.currentToken.Type)
+		}
+
+		if err != nil {
+			return Synta{}, err
+		}
+
+		s.Nodes = append(s.Nodes, node)
+
+		// Populate quick-access structures
+		switch node.Type {
+		case NodeTypeDefinition:
+			if _, ok := s.Definitions[node.Identifier]; ok {
+				return Synta{}, fmt.Errorf("definition for `%s` is provided twice", node.Identifier)
+			}
+			s.Definitions[node.Identifier] = *node.Definition
+		case NodeTypeFilename:
+			if s.Filename.Extension != "" {
+				return Synta{}, errors.New("multiple filename declarations found")
+			}
+			s.Filename = *node.Filename
+		}
+	}
+
+	// Validate that we have a filename
+	if s.Filename.Extension == "" {
+		return Synta{}, errors.New("missing filename declaration")
+	}
+
+	// Validate that all required identifiers are defined
+	requiredIdentifiers := getRequiredIdentifiers(s.Filename.Segments)
+	requiredIdentifiers = append(requiredIdentifiers, s.Filename.Extension)
+	for _, id := range requiredIdentifiers {
+		if _, ok := s.Definitions[id]; !ok {
+			return Synta{}, fmt.Errorf("missing definition for `%s`", id)
+		}
+	}
+
+	return s, nil
+}
+
+// parseFilenameNode parses a filename declaration from tokens
+func (p *parser) parseFilenameNode() (Node, error) {
+	if p.currentToken.Type != TokenFilenamePrefix {
+		return Node{}, fmt.Errorf("expected filename prefix, got %s", p.currentToken.Type)
+	}
+
+	// Advance past '>'
+	if err := p.advance(); err != nil {
+		return Node{}, err
+	}
+
+	// Parse segments
+	segments, err := p.parseSegments()
+	if err != nil {
+		return Node{}, err
+	}
+
+	// Expect dot
+	if p.currentToken.Type != TokenDot {
+		return Node{}, fmt.Errorf("expected '.' before extension, got %s", p.currentToken.Type)
+	}
+	if err := p.advance(); err != nil {
+		return Node{}, err
+	}
+
+	// Parse extension
+	ext, err := p.parseIdentifier()
+	if err != nil {
+		return Node{}, err
+	}
+
+	return Node{
+		Type: NodeTypeFilename,
+		Filename: &Filename{
+			Segments:  segments,
+			Extension: ext,
+		},
+	}, nil
+}
+
+// parseDefinitionNode parses a definition from tokens
+func (p *parser) parseDefinitionNode() (Node, error) {
+	var def Definition
+
+	// Collect comment tokens
+	for p.currentToken.Type == TokenComment {
+		def.Comments = append(def.Comments, p.currentToken.Value)
+		if err := p.advance(); err != nil {
+			return Node{}, err
+		}
+	}
+
+	// Expect identifier
+	if p.currentToken.Type != TokenIdentifier {
+		return Node{}, fmt.Errorf("expected identifier at line %d, got %s", p.currentToken.Line, p.currentToken.Type)
+	}
+	id := Identifier(p.currentToken.Value)
+
+	// Advance past identifier
+	if err := p.advance(); err != nil {
+		return Node{}, err
+	}
+
+	// Expect equals
+	if p.currentToken.Type != TokenEquals {
+		return Node{}, fmt.Errorf("expected '=' at line %d, got %s", p.currentToken.Line, p.currentToken.Type)
+	}
+	if err := p.advance(); err != nil {
+		return Node{}, err
+	}
+
+	// Expect regexp pattern
+	if p.currentToken.Type != TokenRegexpPattern {
+		return Node{}, fmt.Errorf("expected regexp pattern at line %d, got %s", p.currentToken.Line, p.currentToken.Type)
+	}
+
+	var err error
+	def.Regexp, err = regexp.Compile(p.currentToken.Value)
+	if err != nil {
+		return Node{}, fmt.Errorf("invalid regexp at line %d: %w", p.currentToken.Line, err)
+	}
+
+	// Advance past regexp
+	if err := p.advance(); err != nil {
+		return Node{}, err
+	}
+
+	return Node{
+		Type:       NodeTypeDefinition,
+		Identifier: id,
+		Definition: &def,
+	}, nil
+}
+
+// expect checks if the current token matches the expected type and advances
+func (p *parser) expect(expected TokenType) error {
+	if p.currentToken.Type != expected {
+		return fmt.Errorf("expected %s, got %s at line %d", expected, p.currentToken.Type, p.currentToken.Line)
+	}
+	return p.advance()
+}
+
+// parseIdentifier parses an identifier token
+func (p *parser) parseIdentifier() (Identifier, error) {
+	if p.currentToken.Type != TokenIdentifier {
+		return "", fmt.Errorf("expected identifier, got %s", p.currentToken.Type)
+	}
+	id := Identifier(p.currentToken.Value)
+	if err := p.advance(); err != nil {
+		return "", err
+	}
+	return id, nil
+}
+
+// parseSegment parses a single segment (identifier or optional)
+func (p *parser) parseSegment() (Segment, error) {
+	if p.currentToken.Type == TokenLParen {
+		return p.parseOptional()
+	}
+	id, err := p.parseIdentifier()
+	if err != nil {
+		return Segment{}, err
+	}
+	return Segment{
+		Kind:  SegmentTypeIdentifier,
+		Value: &id,
+	}, nil
+}
+
+// parseOptional parses an optional segment: (-<segments>)?
+func (p *parser) parseOptional() (Segment, error) {
+	if err := p.expect(TokenLParen); err != nil {
+		return Segment{}, err
+	}
+	if err := p.expect(TokenDash); err != nil {
+		return Segment{}, err
+	}
+
+	// Parse segments within the optional group using parseSegments
+	// This will handle dash separators and nested optionals
+	subsegments, err := p.parseSegments()
+	if err != nil {
+		return Segment{}, err
+	}
+
+	if err := p.expect(TokenRParen); err != nil {
+		return Segment{}, err
+	}
+	if err := p.expect(TokenQuestion); err != nil {
+		return Segment{}, err
+	}
+
+	return Segment{
+		Kind:        SegmentTypeOptional,
+		Value:       nil,
+		Subsegments: subsegments,
+	}, nil
+}
+
+// parseSegments parses a sequence of segments separated by '-'
+// Optionals can appear without a dash separator
+func (p *parser) parseSegments() ([]Segment, error) {
+	var segments []Segment
+
+	for {
+		seg, err := p.parseSegment()
+		if err != nil {
+			return nil, err
+		}
+		segments = append(segments, seg)
+
+		if p.currentToken.Type == TokenDot {
+			// reached extension separator
+			break
+		} else if p.currentToken.Type == TokenRParen {
+			// end of optional group (handled by caller)
+			break
+		} else if p.currentToken.Type == TokenEOF {
+			return nil, fmt.Errorf("unexpected end of file while parsing segments")
+		} else if p.currentToken.Type == TokenDash {
+			if err := p.advance(); err != nil {
+				return nil, err
+			}
+			// continue parsing more segments after dash
+		} else if p.currentToken.Type == TokenLParen {
+			// optional can follow directly without dash
+			continue
+		} else {
+			return nil, fmt.Errorf("expected '.', '-', ')', or '(', got %s", p.currentToken.Type)
+		}
+	}
+
+	return segments, nil
 }

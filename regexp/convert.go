@@ -31,7 +31,7 @@ func convertWithoutExtensionString(definitions map[synta.Identifier]synta.Defini
 		case synta.SegmentTypeIdentifier:
 			def, isPresent := definitions[*segment.Value]
 			if !isPresent {
-				err = fmt.Errorf("Missing definition for %s", *segment.Value)
+				err = fmt.Errorf("missing definition for %s", *segment.Value)
 				return
 			}
 
