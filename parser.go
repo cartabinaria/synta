@@ -260,22 +260,23 @@ func parseFilename(line string) (def []Segment, ext Identifier, err error) {
 				err = errors.New("Expected a ?")
 			}
 		case State6:
-			if c == '-' {
+			switch c {
+			case '-':
 				state = State0
-			} else if c == '.' {
+			case '.':
 				if depth == 0 {
 					state = State7
 				} else {
 					err = errors.New("Depth is not 0, you must close the optional segment")
 				}
-			} else if c == '(' {
+			case '(':
 				def = generateOptional(def, depth)
 				depth++
 				state = State2
-			} else if c == ')' {
+			case ')':
 				depth--
 				state = State5
-			} else {
+			default:
 				err = errors.New("Expected either a - or a . or a ( or a )")
 			}
 		case State7:
