@@ -46,7 +46,7 @@ func ParseSynta(contents string) (s Synta, err error) {
 		}
 
 		if _, ok := s.Definitions[id]; ok {
-			err = fmt.Errorf("Defintion for `%s` is provided twice", id)
+			err = fmt.Errorf("defintion for `%s` is provided twice", id)
 			return
 		}
 		s.Definitions[id] = def
@@ -61,7 +61,7 @@ func ParseSynta(contents string) (s Synta, err error) {
 	requiredIdentifiers = append(requiredIdentifiers, s.Filename.Extension)
 	for _, id := range requiredIdentifiers {
 		if _, ok := s.Definitions[id]; !ok {
-			err = fmt.Errorf("Missing definition for `%s`", id)
+			err = fmt.Errorf("missing definition for `%s`", id)
 			return
 		}
 	}
@@ -220,10 +220,10 @@ func parseFilename(line string) (def []Segment, ext Identifier, err error) {
 					def = push(def, &seg, depth)
 					state = State7
 				} else {
-					err = errors.New("Depth is not 0, you must close the optional segment")
+					err = errors.New("depth is not 0, you must close the optional segment")
 				}
 			} else {
-				err = errors.New("Expected either a char, or a -, or a ( or a .")
+				err = errors.New("expected either a char, or a -, or a ( or a .")
 			}
 		case State2:
 			if c == '-' {
