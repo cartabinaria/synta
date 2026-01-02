@@ -48,9 +48,9 @@ func ParseSynta(contents string) (s Synta, err error) {
 		if _, ok := s.Definitions[id]; ok {
 			err = fmt.Errorf("Defintion for `%s` is provided twice", id)
 			return
-		} else if err == nil {
-			s.Definitions[id] = def
 		}
+		s.Definitions[id] = def
+
 	}
 
 	s.Filename.Segments, s.Filename.Extension, err = parseFilename(filenameLine)
